@@ -414,15 +414,56 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		scanner := bufio.NewScanner(httpResp.Body)
 		scanner.Buffer(nil, 52_428_800) // 50MB
 		var param any
+		outputItemsByIndex := make(map[int64][]byte)
+		var outputItemsFallback [][]byte
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			helps.AppendAPIResponseChunk(ctx, e.cfg, line)
 
 			if bytes.HasPrefix(line, dataTag) {
-				data := bytes.TrimSpace(line[5:])
-				if gjson.GetBytes(data, "type").String() == "response.completed" {
-					if detail, ok := helps.ParseCodexUsage(data); ok {
+				eventData := bytes.TrimSpace(line[5:])
+				eventType := gjson.GetBytes(eventData, "type").String()
+
+				if eventType == "response.output_item.done" {
+					itemResult := gjson.GetBytes(eventData, "item")
+					if itemResult.Exists() && itemResult.Type == gjson.JSON {
+						outputIndexResult := gjson.GetBytes(eventData, "output_index")
+						if outputIndexResult.Exists() {
+							outputItemsByIndex[outputIndexResult.Int()] = []byte(itemResult.Raw)
+						} else {
+							outputItemsFallback = append(outputItemsFallback, []byte(itemResult.Raw))
+						}
+					}
+				}
+
+				if eventType == "response.completed" {
+					if detail, ok := helps.ParseCodexUsage(eventData); ok {
 						reporter.Publish(ctx, detail)
+					}
+					outputResult := gjson.GetBytes(eventData, "response.output")
+					shouldPatchOutput := (!outputResult.Exists() || !outputResult.IsArray() || len(outputResult.Array()) == 0) && (len(outputItemsByIndex) > 0 || len(outputItemsFallback) > 0)
+					if shouldPatchOutput {
+						completedDataPatched := eventData
+						completedDataPatched, _ = sjson.SetRawBytes(completedDataPatched, "response.output", []byte(`[]`))
+
+						indexes := make([]int64, 0, len(outputItemsByIndex))
+						for idx := range outputItemsByIndex {
+							indexes = append(indexes, idx)
+						}
+						sort.Slice(indexes, func(i, j int) bool {
+							return indexes[i] < indexes[j]
+						})
+						for _, idx := range indexes {
+							completedDataPatched, _ = sjson.SetRawBytes(completedDataPatched, "response.output.-1", outputItemsByIndex[idx])
+						}
+						for _, item := range outputItemsFallback {
+							completedDataPatched, _ = sjson.SetRawBytes(completedDataPatched, "response.output.-1", item)
+						}
+
+						rebuilt := make([]byte, 0, len(completedDataPatched)+6)
+						rebuilt = append(rebuilt, []byte("data: ")...)
+						rebuilt = append(rebuilt, completedDataPatched...)
+						line = rebuilt
 					}
 				}
 			}

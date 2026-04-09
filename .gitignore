@@ -32,17 +32,17 @@ CLAUDE.md
 GEMINI.md
 
 # Tooling metadata
+.codex
 .vscode/*
-.worktrees/
 .codex/*
 .claude/*
 .gemini/*
 .serena/*
 .agent/*
 .agents/*
+.agents/*
 .opencode/*
 .idea/*
-.beads/*
 .bmad/*
 _bmad/*
 _bmad-output/*
@@ -50,3 +50,6 @@ _bmad-output/*
 # macOS
 .DS_Store
 ._*
+
+#fast start script
+script/*

@@ -241,6 +241,72 @@ func TestConvertOpenAIChatCompletionsResponseToOpenAIResponses_MultipleToolCalls
 	}
 }
 
+func TestConvertOpenAIChatCompletionsResponseToOpenAIResponses_MissingToolIndexKeepsCallIdentity(t *testing.T) {
+	in := []string{
+		`data: {"id":"resp_missing_index","object":"chat.completion.chunk","created":1773896263,"model":"model","choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":null,"tool_calls":[{"index":1,"id":"call_Xtz2ezUjYYFfAcXH6KGIolza","type":"function","function":{"name":"skill","arguments":""}}]},"finish_reason":null}]}`,
+		`data: {"id":"resp_missing_index","object":"chat.completion.chunk","created":1773896263,"model":"model","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":null,"tool_calls":[{"id":"fc_014e7bc7bae84d300169d4a0b6543c8191ac1ac9226e14312d","function":{"arguments":"{\"arg\":\"v\"}"}}]},"finish_reason":null}]}`,
+		`data: {"id":"resp_missing_index","object":"chat.completion.chunk","created":1773896263,"model":"model","choices":[{"index":0,"delta":{"role":null,"content":null,"reasoning_content":null,"tool_calls":null},"finish_reason":"tool_calls"}],"usage":{"completion_tokens":10,"total_tokens":20,"prompt_tokens":10}}`,
+		`data: [DONE]`,
+	}
+
+	request := []byte(`{"model":"gpt-5.4","tool_choice":"auto","parallel_tool_calls":true}`)
+
+	var param any
+	var out [][]byte
+	for _, line := range in {
+		out = append(out, ConvertOpenAIChatCompletionsResponseToOpenAIResponses(context.Background(), "model", request, request, []byte(line), &param)...)
+	}
+
+	callID := "call_Xtz2ezUjYYFfAcXH6KGIolza"
+	var addedCount int
+	var deltaItemID string
+	var doneCallID string
+	var doneName string
+	var doneArgs string
+
+	for _, chunk := range out {
+		ev, data := parseOpenAIResponsesSSEEvent(t, chunk)
+		switch ev {
+		case "response.output_item.added":
+			if data.Get("item.type").String() != "function_call" {
+				continue
+			}
+			addedCount++
+			if got := data.Get("item.call_id").String(); got != callID {
+				t.Fatalf("unexpected call_id in output_item.added: got %q want %q", got, callID)
+			}
+			if got := data.Get("item.name").String(); got != "skill" {
+				t.Fatalf("unexpected name in output_item.added: got %q want %q", got, "skill")
+			}
+		case "response.function_call_arguments.delta":
+			deltaItemID = data.Get("item_id").String()
+		case "response.output_item.done":
+			if data.Get("item.type").String() != "function_call" {
+				continue
+			}
+			doneCallID = data.Get("item.call_id").String()
+			doneName = data.Get("item.name").String()
+			doneArgs = data.Get("item.arguments").String()
+		}
+	}
+
+	if addedCount != 1 {
+		t.Fatalf("expected exactly 1 function_call output_item.added event, got %d", addedCount)
+	}
+	if deltaItemID != "fc_"+callID {
+		t.Fatalf("unexpected item_id in function_call_arguments.delta: got %q want %q", deltaItemID, "fc_"+callID)
+	}
+	if doneCallID != callID {
+		t.Fatalf("unexpected call_id in output_item.done: got %q want %q", doneCallID, callID)
+	}
+	if doneName != "skill" {
+		t.Fatalf("unexpected name in output_item.done: got %q want %q", doneName, "skill")
+	}
+	if doneArgs != `{"arg":"v"}` {
+		t.Fatalf("unexpected arguments in output_item.done: got %q want %q", doneArgs, `{"arg":"v"}`)
+	}
+}
+
 func TestConvertOpenAIChatCompletionsResponseToOpenAIResponses_MultiChoiceToolCallsUseDistinctOutputIndexes(t *testing.T) {
 	in := []string{
 		`data: {"id":"resp_multi_choice","object":"chat.completion.chunk","created":1773896263,"model":"model","choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":null,"tool_calls":[{"index":0,"id":"call_choice0","type":"function","function":{"name":"glob","arguments":""}}]},"finish_reason":null},{"index":1,"delta":{"role":"assistant","content":null,"reasoning_content":null,"tool_calls":[{"index":0,"id":"call_choice1","type":"function","function":{"name":"read","arguments":""}}]},"finish_reason":null}]}`,

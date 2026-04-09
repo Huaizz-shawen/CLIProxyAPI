@@ -37,6 +37,7 @@ type oaiToResponsesState struct {
 	FuncNames    map[string]string
 	FuncCallIDs  map[string]string
 	FuncOutputIx map[string]int
+	LastFuncKey  map[int]string
 	MsgOutputIx  map[int]int
 	NextOutputIx int
 	// message item state per output index
@@ -206,6 +207,7 @@ func ConvertOpenAIChatCompletionsResponseToOpenAIResponses(ctx context.Context, 
 			FuncNames:       make(map[string]string),
 			FuncCallIDs:     make(map[string]string),
 			FuncOutputIx:    make(map[string]int),
+			LastFuncKey:     make(map[int]string),
 			MsgOutputIx:     make(map[int]int),
 			MsgTextBuf:      make(map[int]*strings.Builder),
 			MsgItemAdded:    make(map[int]bool),
@@ -279,6 +281,7 @@ func ConvertOpenAIChatCompletionsResponseToOpenAIResponses(ctx context.Context, 
 		return ix
 	}
 	toolStateKey := func(outputIndex, toolIndex int) string { return fmt.Sprintf("%d:%d", outputIndex, toolIndex) }
+	toolStatePrefix := func(outputIndex int) string { return fmt.Sprintf("%d:", outputIndex) }
 	var out [][]byte
 
 	if !st.Started {
@@ -293,6 +296,7 @@ func ConvertOpenAIChatCompletionsResponseToOpenAIResponses(ctx context.Context, 
 		st.FuncNames = make(map[string]string)
 		st.FuncCallIDs = make(map[string]string)
 		st.FuncOutputIx = make(map[string]int)
+		st.LastFuncKey = make(map[int]string)
 		st.MsgOutputIx = make(map[int]int)
 		st.NextOutputIx = 0
 		st.MsgItemAdded = make(map[int]bool)
@@ -463,9 +467,44 @@ func ConvertOpenAIChatCompletionsResponseToOpenAIResponses(ctx context.Context, 
 					}
 
 					tcs.ForEach(func(_, tc gjson.Result) bool {
-						toolIndex := int(tc.Get("index").Int())
-						key := toolStateKey(idx, toolIndex)
 						newCallID := tc.Get("id").String()
+						key := ""
+						if indexResult := tc.Get("index"); indexResult.Exists() {
+							key = toolStateKey(idx, int(indexResult.Int()))
+						} else {
+							if newCallID != "" {
+								prefix := toolStatePrefix(idx)
+								for existingKey, existingCallID := range st.FuncCallIDs {
+									if strings.HasPrefix(existingKey, prefix) && existingCallID == newCallID {
+										key = existingKey
+										break
+									}
+								}
+							}
+							if key == "" {
+								if lastKey := st.LastFuncKey[idx]; lastKey != "" {
+									key = lastKey
+								}
+							}
+							if key == "" {
+								prefix := toolStatePrefix(idx)
+								activeCount := 0
+								activeKey := ""
+								for existingKey := range st.FuncCallIDs {
+									if !strings.HasPrefix(existingKey, prefix) || st.FuncItemDone[existingKey] {
+										continue
+									}
+									activeCount++
+									activeKey = existingKey
+								}
+								if activeCount == 1 {
+									key = activeKey
+								}
+							}
+							if key == "" {
+								key = toolStateKey(idx, 0)
+							}
+						}
 						nameChunk := tc.Get("function.name").String()
 						if nameChunk != "" {
 							st.FuncNames[key] = nameChunk
@@ -491,6 +530,7 @@ func ConvertOpenAIChatCompletionsResponseToOpenAIResponses(ctx context.Context, 
 							o, _ = sjson.SetBytes(o, "item.name", st.FuncNames[key])
 							out = append(out, emitRespEvent("response.output_item.added", o))
 						}
+						st.LastFuncKey[idx] = key
 
 						if st.FuncArgsBuf[key] == nil {
 							st.FuncArgsBuf[key] = &strings.Builder{}
