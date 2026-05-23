@@ -672,6 +672,9 @@ func (h *BaseAPIHandler) executeStreamWithAuthManager(ctx context.Context, handl
 	}
 	reqMeta := requestExecutionMetadata(ctx)
 	reqMeta[coreexecutor.RequestedModelMetadataKey] = modelName
+	if StreamingBootstrapRetries(h.Cfg) <= 0 {
+		reqMeta[coreexecutor.DisableStreamBootstrapMetadataKey] = true
+	}
 	setReasoningEffortMetadata(reqMeta, handlerType, normalizedModel, rawJSON)
 	payload := rawJSON
 	if len(payload) == 0 {

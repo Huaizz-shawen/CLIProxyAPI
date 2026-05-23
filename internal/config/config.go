@@ -111,6 +111,9 @@ type Config struct {
 	// Codex defines a list of Codex API key configurations as specified in the YAML configuration file.
 	CodexKey []CodexKey `yaml:"codex-api-key" json:"codex-api-key"`
 
+	// CodexCLIAuth defines external Codex CLI auth sources composed from auth.json and config.toml.
+	CodexCLIAuth []CodexCLIAuthSource `yaml:"codex-cli-auth" json:"codex-cli-auth"`
+
 	// CodexHeaderDefaults configures fallback headers for Codex OAuth model requests.
 	// These are used only when the client does not send its own headers.
 	CodexHeaderDefaults CodexHeaderDefaults `yaml:"codex-header-defaults" json:"codex-header-defaults"`
@@ -476,6 +479,45 @@ type CodexKey struct {
 func (k CodexKey) GetAPIKey() string  { return k.APIKey }
 func (k CodexKey) GetBaseURL() string { return k.BaseURL }
 
+// CodexCLIAuthSource defines an external Codex CLI credential source.
+// It combines the API key from auth.json with the selected provider/base URL
+// from config.toml and synthesizes a runtime Codex API-key credential.
+type CodexCLIAuthSource struct {
+	// Enable toggles this source.
+	Enable bool `yaml:"enable" json:"enable"`
+
+	// AuthFile points to the Codex CLI auth.json file containing the API key field.
+	AuthFile string `yaml:"auth-file" json:"auth-file"`
+
+	// APIKeyField selects the auth.json field to use. Defaults to OPENAI_API_KEY.
+	APIKeyField string `yaml:"api-key-field,omitempty" json:"api-key-field,omitempty"`
+
+	// ConfigFile points to Codex CLI config.toml containing model_providers.
+	ConfigFile string `yaml:"config-file" json:"config-file"`
+
+	// Provider selects a model_providers.<name> entry from config.toml.
+	// If empty, model_provider from config.toml is used.
+	Provider string `yaml:"provider,omitempty" json:"provider,omitempty"`
+
+	// Priority controls selection preference when multiple credentials match.
+	Priority int `yaml:"priority,omitempty" json:"priority,omitempty"`
+
+	// Prefix optionally namespaces models for this credential.
+	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+
+	// Websockets enables the Responses API websocket transport for this credential.
+	Websockets bool `yaml:"websockets,omitempty" json:"websockets,omitempty"`
+
+	// ProxyURL overrides the global proxy setting for this synthesized key if provided.
+	ProxyURL string `yaml:"proxy-url,omitempty" json:"proxy-url,omitempty"`
+
+	// Headers optionally adds extra HTTP headers for requests sent with this key.
+	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+
+	// ExcludedModels lists model IDs that should be excluded for this provider.
+	ExcludedModels []string `yaml:"excluded-models,omitempty" json:"excluded-models,omitempty"`
+}
+
 // CodexModel describes a mapping between an alias and the actual upstream model name.
 type CodexModel struct {
 	// Name is the upstream model identifier used when issuing requests.
@@ -722,6 +764,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Sanitize Codex keys: drop entries without base-url
 	cfg.SanitizeCodexKeys()
 
+	// Normalize Codex CLI auth sources.
+	cfg.SanitizeCodexCLIAuth()
+
 	// Sanitize Codex header defaults.
 	cfg.SanitizeCodexHeaderDefaults()
 
@@ -921,6 +966,24 @@ func (cfg *Config) SanitizeCodexKeys() {
 		out = append(out, e)
 	}
 	cfg.CodexKey = out
+}
+
+// SanitizeCodexCLIAuth normalizes external Codex CLI auth sources.
+func (cfg *Config) SanitizeCodexCLIAuth() {
+	if cfg == nil || len(cfg.CodexCLIAuth) == 0 {
+		return
+	}
+	for i := range cfg.CodexCLIAuth {
+		entry := &cfg.CodexCLIAuth[i]
+		entry.AuthFile = strings.TrimSpace(entry.AuthFile)
+		entry.APIKeyField = strings.TrimSpace(entry.APIKeyField)
+		entry.ConfigFile = strings.TrimSpace(entry.ConfigFile)
+		entry.Provider = strings.TrimSpace(entry.Provider)
+		entry.Prefix = normalizeModelPrefix(entry.Prefix)
+		entry.ProxyURL = strings.TrimSpace(entry.ProxyURL)
+		entry.Headers = NormalizeHeaders(entry.Headers)
+		entry.ExcludedModels = NormalizeExcludedModels(entry.ExcludedModels)
+	}
 }
 
 // SanitizeClaudeKeys normalizes headers for Claude credentials.

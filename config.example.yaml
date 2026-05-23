@@ -185,6 +185,17 @@ nonstream-keepalive-interval: 0
 #       - "*-mini"          # wildcard matching suffix (e.g. gpt-5-codex-mini)
 #       - "*codex*"         # wildcard matching substring (e.g. gpt-5-codex-low)
 
+# Codex CLI auth fallback source
+# codex-cli-auth:
+#   - enable: true
+#     auth-file: "/home/user/.codex/auth.json"
+#     api-key-field: "CLI_PROXY_API_OPENAI_API_KEY" # optional, defaults to OPENAI_API_KEY
+#     config-file: "/home/user/.codex/config.toml"
+#     provider: "baibai" # optional, defaults to model_provider in config.toml
+#     prefix: "codex-cli" # optional
+#     websockets: false
+#     proxy-url: "socks5://proxy.example.com:1080" # optional
+
 # Claude API keys
 # claude-api-key:
 #   - api-key: "sk-atSM..." # use the official claude API key, no need to set the base url

@@ -12,6 +12,7 @@ logs/*
 conv/*
 temp/*
 refs/*
+script/
 
 # Storage backends
 pgstore/*
@@ -34,6 +35,8 @@ GEMINI.md
 # Tooling metadata
 .vscode/*
 .worktrees/
+.codex
+.codex/
 .codex/*
 .claude/*
 .gemini/*
@@ -51,3 +54,4 @@ _bmad-output/*
 .DS_Store
 ._*
 .gocache/
+.fuse_hidden*

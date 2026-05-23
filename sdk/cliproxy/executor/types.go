@@ -20,6 +20,9 @@ const DisallowFreeAuthMetadataKey = "disallow_free_auth"
 // ReasoningEffortMetadataKey stores the client-requested reasoning effort for usage logs.
 const ReasoningEffortMetadataKey = "reasoning_effort"
 
+// DisableStreamBootstrapMetadataKey disables auth-manager first-payload probing.
+const DisableStreamBootstrapMetadataKey = "disable_stream_bootstrap"
+
 const (
 	// PinnedAuthMetadataKey locks execution to a specific auth ID.
 	PinnedAuthMetadataKey = "pinned_auth_id"
